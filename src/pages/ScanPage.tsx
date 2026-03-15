@@ -459,7 +459,7 @@ export const ScanPage: React.FC = () => {
 
       {inputMode === 'upload' ? (
         <div style={{ padding: '0 12px 8px', flexShrink: 0 }}>
-          <input type="file" accept="image/*" onChange={handleUpload} />
+          <input type="file" accept="image/*" capture="environment" onChange={handleUpload} />
         </div>
       ) : (
         <div className="camera-box">
