@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { useAppContext } from '../store/AppContext';
 import { db } from '../db';
 import { Point2D, Point3D, ScanData } from '../types';
-import { delaunay, normalizeFace, computeAngles, computeExpr, evalQuality, exprTotal } from '../utils/geometry';
+import { delaunay, normalizeFace, computeAngles, computeExpr, evalQuality, exprTotal, computeSpatialMetrics } from '../utils/geometry';
 import { LM, FACE_OVAL_IDX, FACE_REGIONS } from '../utils/constants';
 
 let detector: faceLandmarksDetection.FaceLandmarksDetector | null = null;
@@ -14,6 +14,8 @@ export const ScanPage: React.FC = () => {
   const { sysLog, setLed, currentCharId, currentScan, setCurrentScan, setViewMode, setActiveTab, setTexCanvas, editKpts, setEditKpts, lastTris, setLastTris } = useAppContext();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [srcImg, setSrcImg] = useState<HTMLImageElement | null>(null);
   const [imgW, setImgW] = useState(1);
   const [imgH, setImgH] = useState(1);
@@ -27,6 +29,24 @@ export const ScanPage: React.FC = () => {
   
   const [origKpts, setOrigKpts] = useState<Point3D[] | null>(null);
   const [normPts, setNormPts] = useState<Point3D[] | null>(null);
+  const [inputMode, setInputMode] = useState<'upload' | 'camera'>('upload');
+  const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user');
+  const [cameraState, setCameraState] = useState<'off' | 'starting' | 'on'>('off');
+
+  const resetScanState = () => {
+    setEditKpts(null);
+    setOrigKpts(null);
+    setNormPts(null);
+    setLastTris(null);
+    setCurrentScan(null);
+  };
+
+  const setSourceImage = (img: HTMLImageElement) => {
+    setImgW(img.naturalWidth || img.width || 1);
+    setImgH(img.naturalHeight || img.height || 1);
+    setSrcImg(img);
+    resetScanState();
+  };
 
   useEffect(() => {
     const initAI = async () => {
@@ -52,15 +72,78 @@ export const ScanPage: React.FC = () => {
     reader.onload = ev => {
       const img = new Image();
       img.onload = () => {
-        setImgW(img.naturalWidth || img.width || 1);
-        setImgH(img.naturalHeight || img.height || 1);
-        setSrcImg(img);
-        setEditKpts(null); setOrigKpts(null); setNormPts(null); setLastTris(null); setCurrentScan(null);
+        setSourceImage(img);
       };
       img.src = ev.target?.result as string;
     };
     reader.readAsDataURL(e.target.files[0]);
   };
+
+  const stopCamera = (setState = true) => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) videoRef.current.srcObject = null;
+    if (setState) setCameraState('off');
+  };
+
+  const startCamera = async (facing: 'user' | 'environment' = cameraFacing) => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      sysLog('Ta przeglądarka nie wspiera getUserMedia.', 'err');
+      return;
+    }
+    stopCamera(false);
+    setCameraState('starting');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: facing },
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => undefined);
+      }
+      setCameraState('on');
+      sysLog(`Kamera aktywna (${facing === 'user' ? 'przednia' : 'tylna'}).`, 'ok');
+    } catch (e: any) {
+      setCameraState('off');
+      sysLog('Błąd kamery: ' + e.message, 'err');
+    }
+  };
+
+  const handleSwitchCamera = async () => {
+    const nextFacing = cameraFacing === 'user' ? 'environment' : 'user';
+    setCameraFacing(nextFacing);
+    await startCamera(nextFacing);
+  };
+
+  const handleCaptureFrame = () => {
+    const v = videoRef.current;
+    if (!v || cameraState !== 'on') {
+      sysLog('Najpierw uruchom kamerę.', 'warn');
+      return;
+    }
+    if (!v.videoWidth || !v.videoHeight) {
+      sysLog('Kamera jeszcze inicjalizuje obraz.', 'warn');
+      return;
+    }
+    const c = document.createElement('canvas');
+    c.width = v.videoWidth;
+    c.height = v.videoHeight;
+    c.getContext('2d')?.drawImage(v, 0, 0, c.width, c.height);
+    const img = new Image();
+    img.onload = () => setSourceImage(img);
+    img.src = c.toDataURL('image/jpeg', 0.95);
+    sysLog('Klatka przechwycona z kamery.', 'ok');
+  };
+
+  useEffect(() => () => { stopCamera(); }, []);
 
   useEffect(() => {
     if (!srcImg || !canvasRef.current || !wrapRef.current) return;
@@ -315,12 +398,14 @@ export const ScanPage: React.FC = () => {
       const expr = computeExpr(raw3D);
       if (expr) expr.overall = exprTotal(expr);
       const quality = evalQuality(raw3D, canvasRef.current, angles, expr);
+      const spatial = computeSpatialMetrics(raw3D);
       
       setOrigKpts(oKpts); setEditKpts(eKpts); setNormPts(nPts); setLastTris(tris);
-      setCurrentScan({ points: nPts, quality, angles, expr, charId: currentCharId });
+      setCurrentScan({ points: nPts, quality, angles, expr, charId: currentCharId, spatial });
       
       setLed('scan', 'on');
-      sysLog(`OK q:${quality.total}% yaw:${angles.yaw.toFixed(1)}° tris:${tris.length}`, 'ok');
+      const spread = spatial ? spatial.depthSpread.toFixed(3) : '—';
+      sysLog(`OK q:${quality.total}% yaw:${angles.yaw.toFixed(1)}° tris:${tris.length} zσ:${spread}`, 'ok');
     } catch (e: any) {
       setLed('scan', 'err'); sysLog('Błąd: ' + e.message, 'err');
     }
@@ -356,10 +441,38 @@ export const ScanPage: React.FC = () => {
 
   return (
     <div className="page active" style={{ display: 'flex' }}>
-      <div className="sh">Wgraj zdjęcie</div>
-      <div style={{ padding: '0 12px 8px', flexShrink: 0 }}>
-        <input type="file" accept="image/*" onChange={handleUpload} />
+      <div className="sh">Źródło obrazu</div>
+      <div className="scan-src-row">
+        <button
+          className={`tb ${inputMode === 'upload' ? 'on' : ''}`}
+          onClick={() => { setInputMode('upload'); stopCamera(); }}
+        >
+          📁 Plik
+        </button>
+        <button
+          className={`tb ${inputMode === 'camera' ? 'on' : ''}`}
+          onClick={() => { setInputMode('camera'); startCamera(); }}
+        >
+          📷 Kamera
+        </button>
       </div>
+
+      {inputMode === 'upload' ? (
+        <div style={{ padding: '0 12px 8px', flexShrink: 0 }}>
+          <input type="file" accept="image/*" onChange={handleUpload} />
+        </div>
+      ) : (
+        <div className="camera-box">
+          <video ref={videoRef} playsInline muted autoPlay />
+          <div className="camera-actions">
+            <button className="tb" onClick={() => startCamera()} disabled={cameraState === 'starting'}>
+              {cameraState === 'on' ? 'Odśwież stream' : cameraState === 'starting' ? 'Uruchamianie...' : 'Start'}
+            </button>
+            <button className="tb" onClick={handleSwitchCamera} disabled={cameraState !== 'on'}>↺ Kamera</button>
+            <button className="tb go" onClick={handleCaptureFrame} disabled={cameraState !== 'on'}>● Klatka</button>
+          </div>
+        </div>
+      )}
 
       <div id="editor-wrap" ref={wrapRef}>
         <canvas 
@@ -436,6 +549,20 @@ export const ScanPage: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {currentScan.spatial && (
+            <div>
+              <div className="sh">Relacje przestrzenne 3D</div>
+              <div className="bio-grid">
+                <div className="bio-cell"><div className="bio-name">Rozrzut głębi (Zσ)</div><div className="bio-value">{currentScan.spatial.depthSpread.toFixed(3)}</div></div>
+                <div className="bio-cell"><div className="bio-name">Projekcja nosa</div><div className="bio-value">{currentScan.spatial.noseProjection.toFixed(3)}</div></div>
+                <div className="bio-cell"><div className="bio-name">Odchyłka od płaszczyzny</div><div className="bio-value">{currentScan.spatial.facePlaneDeviation.toFixed(3)}</div></div>
+                <div className="bio-cell"><div className="bio-name">Różnica głębi oczu</div><div className="bio-value">{currentScan.spatial.eyeDepthDelta.toFixed(3)}</div></div>
+                <div className="bio-cell"><div className="bio-name">Szer. żuchwy / głębia</div><div className="bio-value">{currentScan.spatial.jawWidthToDepth.toFixed(3)}</div></div>
+                <div className="bio-cell"><div className="bio-name">Skośność perspektywy</div><div className="bio-value">{currentScan.spatial.perspectiveSkew.toFixed(3)}</div></div>
+              </div>
+            </div>
+          )}
 
           <div style={{ padding: '0 12px 12px' }}>
             <div className="confirm-card">
