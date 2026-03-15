@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Point2D, Point3D, Angles, Expression, Quality } from '../types';
+import { Point2D, Point3D, Angles, Expression, Quality, SpatialMetrics } from '../types';
 import { LM, FACE_OVAL_IDX } from './constants';
 
 export function pip(px: number, py: number, poly: Point2D[]) {
@@ -119,4 +119,50 @@ export function evalQuality(rawPts: THREE.Vector3[], cv: HTMLCanvasElement, angl
   const sharp = Math.min(1, computeSharpness(cv) / 15);
   const eScore = expr ? Math.max(0, 1 - exprTotal(expr) * 2) : .5;
   return { total: Math.round(comp * 25 + aScore * 30 + symm * 20 + sharp * 15 + eScore * 10), comp, aScore, symm, sharp, eScore };
+}
+
+export function computeSpatialMetrics(rawPts: THREE.Vector3[]): SpatialMetrics | null {
+  if (!rawPts || rawPts.length < 468) return null;
+
+  const eyeDist = rawPts[LM.L_EYE_IN].distanceTo(rawPts[LM.R_EYE_IN]);
+  if (eyeDist < 1e-5) return null;
+
+  const zVals = rawPts.map(p => p.z);
+  const zMin = Math.min(...zVals);
+  const zMax = Math.max(...zVals);
+  const zMean = zVals.reduce((s, z) => s + z, 0) / zVals.length;
+  const zVar = zVals.reduce((s, z) => s + Math.pow(z - zMean, 2), 0) / zVals.length;
+  const zStd = Math.sqrt(zVar);
+
+  const nose = rawPts[LM.NOSE_TIP];
+  const cheekL = rawPts[LM.CHEEK_L];
+  const cheekR = rawPts[LM.CHEEK_R];
+  const jawL = rawPts[LM.JAW_L];
+  const jawR = rawPts[LM.JAW_R];
+  const eyeL = rawPts[LM.L_EYE_IN];
+  const eyeR = rawPts[LM.R_EYE_IN];
+  const mouthMid = rawPts[LM.MOUTH_TOP].clone().add(rawPts[LM.MOUTH_BOT]).multiplyScalar(0.5);
+
+  const faceNormal = new THREE.Vector3()
+    .subVectors(eyeR, eyeL)
+    .cross(new THREE.Vector3().subVectors(mouthMid, eyeL));
+  const normalLen = faceNormal.length();
+  const planeDeviation = normalLen > 1e-5
+    ? Math.abs(faceNormal.dot(new THREE.Vector3().subVectors(nose, eyeL))) / normalLen / eyeDist
+    : 0;
+
+  const cheekMeanZ = (cheekL.z + cheekR.z) * 0.5;
+  const noseProjection = Math.abs(nose.z - cheekMeanZ) / eyeDist;
+  const eyeDepthDelta = Math.abs(eyeL.z - eyeR.z) / eyeDist;
+  const jawWidthToDepth = jawL.distanceTo(jawR) / (Math.abs(zMax - zMin) + 1e-5);
+  const perspectiveSkew = Math.abs(nose.distanceTo(cheekL) - nose.distanceTo(cheekR)) / eyeDist;
+
+  return {
+    depthSpread: zStd / eyeDist,
+    noseProjection,
+    facePlaneDeviation: planeDeviation,
+    eyeDepthDelta,
+    jawWidthToDepth,
+    perspectiveSkew
+  };
 }

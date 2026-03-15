@@ -58,10 +58,20 @@ export interface Quality {
   eScore: number;
 }
 
+export interface SpatialMetrics {
+  depthSpread: number;
+  noseProjection: number;
+  facePlaneDeviation: number;
+  eyeDepthDelta: number;
+  jawWidthToDepth: number;
+  perspectiveSkew: number;
+}
+
 export interface ScanData {
   points: Point3D[];
   quality: Quality;
   angles: Angles;
   expr: Expression | null;
   charId: number;
+  spatial?: SpatialMetrics | null;
 }

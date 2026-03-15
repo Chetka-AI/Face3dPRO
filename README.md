@@ -1,20 +1,73 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Face3D Pro — aplikacja mobilna bez serwera
 
-# Run and deploy your AI Studio app
+Projekt został przebudowany pod uruchamianie na smartfonie jako aplikacja Android
+(Capacitor), gdzie frontend jest pakowany lokalnie do APK.
 
-This contains everything you need to run your app locally.
+## Co to oznacza „bez serwera”?
 
-View your app in AI Studio: https://ai.studio/apps/4f11cb6d-1e88-421f-9283-6451d16c01bd
+Nie uruchamiasz `npm run dev` na telefonie.  
+Aplikacja działa z lokalnych plików wbudowanych w APK (offline-first).
 
-## Run Locally
+## Wymagania
 
-**Prerequisites:**  Node.js
+- Node.js 20+
+- Android Studio (SDK + emulator lub telefon z USB debugging)
 
+## Instalacja
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+```bash
+npm install
+```
+
+## Tryby uruchamiania
+
+### 1) Klasyczny web (deweloperski)
+
+```bash
+npm run dev
+```
+
+### 2) Android bez serwera (zalecane)
+
+Pierwsza konfiguracja Androida (jednorazowo):
+
+```bash
+npm run mobile:android:add
+```
+
+Przy każdej zmianie kodu:
+
+```bash
+npm run mobile:android:prepare
+```
+
+Otwórz projekt natywny i uruchom APK:
+
+```bash
+npm run mobile:android:open
+```
+
+W Android Studio wybierz urządzenie i kliknij **Run**.
+
+Lub zbuduj APK z CLI:
+
+```bash
+npm run mobile:android:apk
+```
+
+Plik debug APK znajdziesz w:
+`android/app/build/outputs/apk/debug/app-debug.apk`
+
+## Skrócona ścieżka CLI
+
+```bash
+npm run mobile:android:run
+```
+
+To zbuduje frontend, zsynchronizuje assets i uruchomi aplikację na podłączonym urządzeniu.
+
+## Architektura mobilna
+
+- React + Vite buduje statyczne pliki do `dist/`
+- Capacitor kopiuje `dist/` do projektu Android
+- WebView ładuje aplikację lokalnie (bez zewnętrznego serwera)

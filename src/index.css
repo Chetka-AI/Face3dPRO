@@ -109,6 +109,12 @@ input[type=range]{accent-color:var(--acc);width:100%;height:24px;cursor:pointer}
 .stat-label{font-size:9px;color:var(--dim);font-family:var(--mono);margin-top:4px;text-transform:uppercase;letter-spacing:1px}
 
 /* SKAN EDITOR */
+.scan-src-row{display:flex;gap:8px;padding:0 12px 8px;flex-shrink:0}
+.scan-src-row .tb{flex:1}
+.camera-box{margin:0 12px 10px;border:1px solid var(--bdrB);border-radius:8px;overflow:hidden;background:#000;flex-shrink:0}
+.camera-box video{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:#000}
+.camera-actions{display:flex;gap:6px;padding:8px;background:var(--bg2);border-top:1px solid var(--bdr)}
+.camera-actions .tb{flex:1}
 #editor-wrap{position:relative;margin:0 12px;background:#000;border-radius:8px;overflow:hidden;
   border:1px solid var(--bdrB);touch-action:none;user-select:none;flex-shrink:0}
 #view-2d{display:block;touch-action:none;cursor:default}

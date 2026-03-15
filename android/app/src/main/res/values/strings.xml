@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Face3D Pro</string>
+    <string name="title_activity_main">Face3D Pro</string>
+    <string name="package_name">com.face3dpro.mobile</string>
+    <string name="custom_url_scheme">com.face3dpro.mobile</string>
+</resources>
